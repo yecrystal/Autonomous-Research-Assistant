@@ -1,0 +1,17 @@
+langchain==0.1.9
+langgraph==0.1.11
+openai==1.15.0
+anthropic==0.18.1
+playwright==1.42.0
+scrapy==2.11.0
+google-search-results==2.4.2
+fastapi==0.110.0
+flask==3.0.2
+sqlalchemy==2.0.28
+psycopg2-binary==2.9.9
+pymongo==4.6.1
+pinecone-client==3.0.1
+weaviate-client==4.4.4
+python-dotenv==1.0.1
+uvicorn==0.27.1
+pydantic==2.5.3
