@@ -76,3 +76,38 @@ class DirectorAgent:
         num_verified_data = len(state.verified_data)
         summary_status = "completed" if state.summary else "not started"
         report_status = "completed" if state.report else "not started"
+
+        # Get the director's recommendation
+        response = self.claude.invoke(
+            self.director_prompt.format(
+                query = state.query,
+                num_subqueries = num_subqueries,
+                num_search_results = num_search_results,
+                num_collected_data = num_collected_data,
+                num_verified_data = num_verified_data,
+                summary_status = summary_status,
+                report_status = report_status
+            )
+        )
+
+        # Parse the response
+        content = response.content
+
+        # Extract the recommendation
+        if "generate_subqeries" in content.lower():
+            return "generate_subqueries", "Generating focused sub-queries"
+        elif "search" in content.lower():
+            return "search", "Searching for information"
+        elif "collect" in content.lower():
+            return "collect", "Collecting data from search results"
+        elif "verify" in content.lower():
+            return "verify", "Verifying collected data"
+        elif "summarize" in content.lower():
+            return "summarize", "Creating summary of findings"
+        elif "generate_report" in content.lower():
+            return "generate_report", "Generating final research report"
+        else:
+            # Default it to search
+            return "search", "Continuing with information search"
+        
+    
