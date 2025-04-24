@@ -110,4 +110,51 @@ class DirectorAgent:
             # Default it to search
             return "search", "Continuing with information search"
         
-    
+    def generate_subqueries(self, state: ResearchState) -> ResearchState:
+        """
+        Generate sub-queries based on the main query.
+        """
+        # Prompt for generating sub-queries
+        subquery_prompt = PromptTemplate.from_template(
+            """You are a research assistant. Your task is to generate focused sub-queries based on the main query:
+            
+            {query}
+            
+            To explore this topic thoroughly, we need to break it down into specific sub-questions.
+            
+            Please generate 3-5 specific sub-questions that would help us research this topic comprehensively.
+            For each sub-question:
+            1. Make it specific and focused
+            2. Ensure it explores an important aspect of the main query
+            3. Phrase it in a way that would yield good search results
+            
+            Existing sub-queries: {existing_subqueries}
+            
+            Please provide ONLY the new sub-queries, one per line, with no numbering or explanation.
+            """
+        )
+
+        response = self.gpt.invoke(
+            subquery_prompt.format(
+                query=state.query,
+                existing_subqueries="\n".join(state.sub_queries)
+            )
+        )
+
+        # Parse the sub-queries
+        new_subqueries = [q.strip() for q in response.content.strip().split('\n') if q.strip()]
+        
+        # Update the state with new sub-queries
+        updated_state = state.model_copy()
+        for subquery in new_subqueries:
+            if subquery not in updated_state.sub_queries:
+                updated_state.sub_queries.append(subquery)
+
+        return updated_state
+
+    def create_research_workflow(self) -> StateGraph:
+        """
+        Create the research workflow graph.
+        """
+        from backend.core.workflow import create_research_workflow
+        return create_research_workflow()
