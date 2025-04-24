@@ -126,8 +126,8 @@ class VerifierAgent:
                     query=query,
                     title=title,
                     url=url,
-                    contnet=content,
-                    date=date pr "Unknown"
+                    content=content,
+                    date=date or "Unknown"
                 )
             )
         
