@@ -92,7 +92,7 @@ class CollectorAgent:
         """
         # If content is too long, truncate it
         if len(content) > 15000:
-            content = content[:15000]:
+            content = content[:15000]
         
         try:
             response = self.llm.invoke(
