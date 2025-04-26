@@ -14,7 +14,7 @@ router = APIRouter(
 )
 
 @router.get("/me", response_model=[User])
-async def read_users_me(current_user: USer = Depends(get_current_active_user))
+async def read_users_me(current_user: User = Depends(get_current_active_user)):
     """
     Get information about the currently authenticated user.
     """
