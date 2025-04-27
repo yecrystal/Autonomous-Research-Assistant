@@ -111,4 +111,148 @@ async def add_documents(
         await initialize_vector_db()
     try:
         # Add namespace to metadata for filtering
+        for doc in documents:
+            doc.metadata["namespace"] = namespace
+            if "id" not in doc.metadata:
+                doc.metadata["id"] = str[uuid.uuid4()]
         
+        # Add documents to vector store
+        ids = vector_store.add_documents(documents)
+        return ids
+    except Exception as e:
+        logger.error(f"Error adding documents to vector store: {str(e)}")
+        raise
+
+async def similarity_search(
+        query: str,
+        k: int = 5,
+        namespace: Optional[str] = None,
+        filter: Optional[Dict[str, Any]] = None
+) -> List[Document]:
+    """
+    Perform a similarity search in the vector store.
+
+    Args:
+        qeury: The query text
+        k: Number of results to return
+        namespace: Optional namespace to filter results
+        filter: Additional filters to apply
+
+    Returns:
+        List[Document]: The msot similar documents
+    """
+    if vector_store is None:
+        await initialize_vector_db()
+    
+    try:
+        search_filter = filter or {}
+
+        # Add namespace filter if provided
+        if namespace:
+            search_filter["namespace"] = namespace
+        
+        # Perform search with filters
+        if search_filter:
+            if VECTOR_DB_TYPE == VectorDBType.PINECONE:
+                docs = vector_store.similarity_search(
+                    query=query,
+                    k=k,
+                    filter=search_filter
+                )
+        else:
+            docs = vector_store.similarity_search(query=query, k=k)
+        
+        return docs
+    except Exception as e:
+        logger.error(f"Error during similarity search: {str(e)}")
+        raise
+
+async def delete_documents(
+    ids: Optional[List[str]] = None,
+    filter: Optional[Dict[str, Any]] = None,
+    namespace: Optional[str] = None
+) -> bool:
+    """
+    Delete documents from the vector store.
+    
+    Args:
+        ids: Specific document IDs to delete
+        filter: Filter to select documents for deletion
+        namespace: Namespace to filter documents
+        
+    Returns:
+        bool: True if deletion was successful
+    """
+    if vector_store is None:
+        await initialize_vector_db()
+    
+    try:
+        delete_filter = filter or {}
+        
+        # Add namespace filter if provided
+        if namespace:
+            delete_filter["namespace"] = namespace
+            
+        if VECTOR_DB_TYPE == VectorDBType.PINECONE:
+            index = pinecone.Index(PINECONE_INDEX_NAME)
+            
+            if ids:
+                # Delete by IDs
+                index.delete(ids=ids)
+            elif delete_filter:
+                # Delete by filter
+                index.delete(filter=delete_filter)
+            
+        return True
+    except Exception as e:
+        logger.error(f"Error deleting documents from vector store: {str(e)}")
+        return False
+
+async def get_document_by_id(doc_id: str) -> Optional[Document]:
+    """
+    Retrieve a document by its ID.
+    
+    Args:
+        doc_id: The document ID
+        
+    Returns:
+        Optional[Document]: The document if found, None otherwise
+    """
+    if vector_store is None:
+        await initialize_vector_db()
+    
+    try:
+        if VECTOR_DB_TYPE == VectorDBType.PINECONE:
+            index = pinecone.Index(PINECONE_INDEX_NAME)
+            result = index.fetch([doc_id])
+            
+            if doc_id in result.vectors:
+                vector = result.vectors[doc_id]
+                return Document(
+                    page_content=vector.metadata.get("text", ""),
+                    metadata=vector.metadata
+                )
+        
+        return None
+    except Exception as e:
+        logger.error(f"Error retrieving document by ID: {str(e)}")
+        return None
+
+async def health_check() -> bool:
+    """
+    Check if the vector database connection is healthy.
+    
+    Returns:
+        bool: True if the connection is healthy, False otherwise
+    """
+    try:
+        if vector_store is None:
+            await initialize_vector_db()
+            
+        if VECTOR_DB_TYPE == VectorDBType.PINECONE:
+            pinecone.list_indexes()  # Simple operation to check connection
+            
+        return True
+    except Exception as e:
+        logger.error(f"Vector database health check failed: {str(e)}")
+        return False
