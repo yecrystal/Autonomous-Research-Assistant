@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from backend.api import research, projects, users
-from backend.db.postgres import init_db
+from backend.db.postgresql import init_db
 from backend.config import POSTGRES_URL
 
 app = FastAPI(title="Research Assistant API")

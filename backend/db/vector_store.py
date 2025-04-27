@@ -16,3 +16,4 @@ import weaviate
 logger = logging.getLogger(__name__)
 
 # Vector database configuration
+VECTOR_DB_TYPE = os.getenv("VECTOR_DB_TYPE", "pinecone")  # Options: "pinecone", "weaviate"
