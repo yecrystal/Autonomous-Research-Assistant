@@ -276,12 +276,12 @@ async def get_user_projects(user_id: str, skip: int = 0, limit: int = 100) -> Li
 async def update_project(project_id: str, project_update: ProjectUpdate) -> Optional[Project]:
     """
     Update a project.
-
+    
     Args:
         project_id: The ID of the project to update
         project_update: The update data
-
-    Returns: 
+        
+    Returns:
         Optional[Project]: The updated project if successful, None otherwise
     """
     async for db in get_db():
@@ -289,12 +289,12 @@ async def update_project(project_id: str, project_update: ProjectUpdate) -> Opti
             # Prepare update data
             update_data = project_update.dict(exclude_unset=True)
             update_data["updated_at"] = datetime.now()
-
+            
             # Update project
             query = update(ProjectModel).where(ProjectModel.id == project_id).values(**update_data)
             await db.execute(query)
             await db.commit()
-
+            
             # Return updated project
             return await get_project(project_id=project_id)
         except Exception as e:
@@ -324,210 +324,276 @@ async def delete_project(project_id: str) -> bool:
             await db.rollback()
             logger.error(f"Error deleting project: {str(e)}")
             return False
-        
+
 # Research CRUD operations
-async def create_research_request(research_data: ResearchRequest):
+async def create_research(user_id: str, project_id: str, research_data: Dict[str, Any]) -> str:
     """
-    Create a new research request in MongoDB.
-
+    Create a new research entry in MongoDB.
+    
     Args:
-        research_data: The research request data
-        project_id: Optional project ID to link the research to
-
-    Retruns:
-        str: the ID of the created research request
+        user_id: The ID of the user creating the research
+        project_id: The ID of the project this research belongs to
+        research_data: The research data
+        
+    Returns:
+        str: The ID of the created research
     """
+    from ..db.mongodb import insert_one
+    
     try:
-        # Prepare research data
-        research_dict = research_data.dict()
-        research_dict["id"] = str(uuid.uuid4())
-        research_dict["status"] = ResearchStatus.PENDING
-        research_dict["created_at"] = datetime.now()
-        research_dict["updated_at"] = datetime.now()
+        # Generate research ID
+        research_id = str(uuid.uuid4())
         
-        # Insert into MongoDB
-        from ..db.mongodb import insert_one
-        result = await insert_one("research_requests", research_dict)
-        research_id = str(result.inserted_id)
+        # Prepare research document
+        research = {
+            "id": research_id,
+            "user_id": user_id,
+            "project_id": project_id,
+            "title": research_data.get("title", ""),
+            "description": research_data.get("description", ""),
+            "query": research_data.get("query", ""),
+            "status": "pending",
+            "created_at": datetime.now(),
+            "updated_at": datetime.now(),
+            "results": []
+        }
         
-        # If project_id is provided, create a link in SQL
-        if project_id:
-            async for db in get_db():
-                link = ResearchProjectLink(
-                    research_id=research_id,
-                    project_id=project_id,
-                    created_at=datetime.now()
-                )
-                db.add(link)
-                await db.commit()
+        # Insert research into MongoDB
+        await insert_one("researches", research)
         
         return research_id
     except Exception as e:
-        logger.error(f"Error creating research request: {str(e)}")
+        logger.error(f"Error creating research: {str(e)}")
         raise
 
-async def get_research_request(research_id: str) -> Optional[Dict[str, Any]]:
+async def get_research(research_id: str) -> Optional[Dict[str, Any]]:
     """
-    Get a research request by ID.
+    Get a research by ID from MongoDB.
     
     Args:
-        research_id: The research request ID
+        research_id: The research ID
         
     Returns:
-        Optional[Dict[str, Any]]: The research request if found, None otherwise
+        Optional[Dict[str, Any]]: The research if found, None otherwise
     """
+    from ..db.mongodb import find_one
+    
     try:
-        from ..db.mongodb import find_one
-        result = await find_one("research_requests", {"id": research_id})
-        return result
+        research = await find_one("researches", {"id": research_id})
+        return research
     except Exception as e:
-        logger.error(f"Error retrieving research request: {str(e)}")
+        logger.error(f"Error getting research: {str(e)}")
         return None
 
-async def update_research_status(research_id: str, status: ResearchStatus) -> bool:
+async def update_research(research_id: str, update_data: Dict[str, Any]) -> bool:
     """
-    Update the status of a research request.
+    Update a research in MongoDB.
     
     Args:
-        research_id: The ID of the research request
-        status: The new status
+        research_id: The research ID
+        update_data: The data to update
         
     Returns:
-        bool: True if update was successful, False otherwise
+        bool: True if the update was successful, False otherwise
     """
+    from ..db.mongodb import update_one
+    
     try:
-        from ..db.mongodb import update_one
-        result = await update_one(
-            "research_requests",
-            {"id": research_id},
-            {"$set": {"status": status, "updated_at": datetime.now()}}
-        )
-        return result.modified_count > 0
+        # Add updated_at timestamp
+        update_data["updated_at"] = datetime.now()
+        
+        # Update research
+        result = await update_one("researches", {"id": research_id}, update_data)
+        return result
     except Exception as e:
-        logger.error(f"Error updating research status: {str(e)}")
+        logger.error(f"Error updating research: {str(e)}")
         return False
 
-async def store_research_result(research_id: str, result_data: ResearchResult) -> bool:
+async def get_project_researches(project_id: str, skip: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
     """
-    Store the result of a research request.
-    
-    Args:
-        research_id: The ID of the research request
-        result_data: The research result data
-        
-    Returns:
-        bool: True if storing was successful, False otherwise
-    """
-    try:
-        from ..db.mongodb import update_one
-        result_dict = result_data.dict()
-        result_dict["created_at"] = datetime.now()
-        
-        # Update research request with results and change status to COMPLETED
-        result = await update_one(
-            "research_requests",
-            {"id": research_id},
-            {
-                "$set": {
-                    "result": result_dict,
-                    "status": ResearchStatus.COMPLETED,
-                    "updated_at": datetime.now()
-                }
-            }
-        )
-        return result.modified_count > 0
-    except Exception as e:
-        logger.error(f"Error storing research result: {str(e)}")
-        return False
-
-async def index_research_content(research_id: str, content: str, metadata: Dict[str, Any]) -> bool:
-    """
-    Index research content in the vector store for semantic search.
-    
-    Args:
-        research_id: The ID of the research request
-        content: The text content to index
-        metadata: Additional metadata to store with the vector
-        
-    Returns:
-        bool: True if indexing was successful, False otherwise
-    """
-    try:
-        from ..db.vector_store import add_texts
-        
-        # Ensure research_id is in metadata
-        metadata["research_id"] = research_id
-        
-        # Add document to vector store
-        result = await add_texts([content], [metadata])
-        
-        return bool(result)
-    except Exception as e:
-        logger.error(f"Error indexing research content: {str(e)}")
-        return False
-
-async def search_research_content(query: str, filter_metadata: Optional[Dict[str, Any]] = None, limit: int = 5) -> List[Dict[str, Any]]:
-    """
-    Search for research content using semantic search.
-    
-    Args:
-        query: The search query
-        filter_metadata: Optional metadata to filter results
-        limit: Maximum number of results to return
-        
-    Returns:
-        List[Dict[str, Any]]: List of search results
-    """
-    try:
-        from ..db.vector_store import search_texts
-        
-        # Perform semantic search
-        results = await search_texts(query, filter_metadata, limit)
-        
-        return results
-    except Exception as e:
-        logger.error(f"Error searching research content: {str(e)}")
-        return []
-
-async def get_project_research(project_id: str, skip: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
-    """
-    Get all research requests for a project.
+    Get all researches for a project from MongoDB.
     
     Args:
         project_id: The project ID
-        skip: Number of research requests to skip
-        limit: Maximum number of research requests to return
+        skip: Number of researches to skip
+        limit: Maximum number of researches to return
         
     Returns:
-        List[Dict[str, Any]]: List of research requests
+        List[Dict[str, Any]]: List of researches
     """
+    from ..db.mongodb import find_many
+    
     try:
-        # First get the research IDs linked to the project
-        research_ids = []
-        async for db in get_db():
-            query = select(ResearchProjectLink.research_id).where(
-                ResearchProjectLink.project_id == project_id
-            )
-            result = await db.execute(query)
-            research_ids = [row[0] for row in result]
-        
-        if not research_ids:
-            return []
-        
-        # Then get the research requests from MongoDB
-        from ..db.mongodb import find_many
-        research_requests = await find_many(
-            "research_requests",
-            {"id": {"$in": research_ids}},
+        researches = await find_many(
+            "researches",
+            {"project_id": project_id},
             skip=skip,
             limit=limit,
-            sort=[("created_at", -1)]  # Sort by created_at descending
+            sort=[("created_at", -1)]
         )
-        
-        return list(research_requests)
+        return researches
     except Exception as e:
-        logger.error(f"Error retrieving project research: {str(e)}")
+        logger.error(f"Error getting project researches: {str(e)}")
         return []
+
+async def get_user_researches(user_id: str, skip: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
+    """
+    Get all researches for a user from MongoDB.
+    
+    Args:
+        user_id: The user ID
+        skip: Number of researches to skip
+        limit: Maximum number of researches to return
+        
+    Returns:
+        List[Dict[str, Any]]: List of researches
+    """
+    from ..db.mongodb import find_many
+    
+    try:
+        researches = await find_many(
+            "researches",
+            {"user_id": user_id},
+            skip=skip,
+            limit=limit,
+            sort=[("created_at", -1)]
+        )
+        return researches
+    except Exception as e:
+        logger.error(f"Error getting user researches: {str(e)}")
+        return []
+
+# Document CRUD operations
+async def create_document(research_id: str, document_data: Dict[str, Any]) -> str:
+    """
+    Create a new document in MongoDB and index it in the vector store.
+    
+    Args:
+        research_id: The ID of the research this document belongs to
+        document_data: The document data
+        
+    Returns:
+        str: The ID of the created document
+    """
+    from ..db.mongodb import insert_one
+    from ..db.vector_store import add_documents
+    from langchain_core.documents import Document as LangchainDocument
+    
+    try:
+        # Generate document ID
+        document_id = str(uuid.uuid4())
+        
+        # Prepare document
+        document = {
+            "id": document_id,
+            "research_id": research_id,
+            "title": document_data.get("title", ""),
+            "content": document_data.get("content", ""),
+            "url": document_data.get("url", None),
+            "metadata": document_data.get("metadata", {}),
+            "created_at": datetime.now(),
+            "updated_at": datetime.now()
+        }
+        
+        # Insert document into MongoDB
+        await insert_one("documents", document)
+        
+        # Index document in vector store if it has content
+        if document.get("content"):
+            # Create Langchain Document for vector store
+            langchain_doc = LangchainDocument(
+                page_content=document["content"],
+                metadata={
+                    "id": document_id,
+                    "research_id": research_id,
+                    "title": document["title"],
+                    "url": document["url"],
+                    **document["metadata"]
+                }
+            )
+            
+            # Add to vector store
+            await add_documents([langchain_doc], namespace=f"research_{research_id}")
+        
+        return document_id
+    except Exception as e:
+        logger.error(f"Error creating document: {str(e)}")
+        raise
+
+async def get_document(document_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get a document by ID from MongoDB.
+    
+    Args:
+        document_id: The document ID
+        
+    Returns:
+        Optional[Dict[str, Any]]: The document if found, None otherwise
+    """
+    from ..db.mongodb import find_one
+    
+    try:
+        document = await find_one("documents", {"id": document_id})
+        return document
+    except Exception as e:
+        logger.error(f"Error getting document: {str(e)}")
+        return None
+
+async def get_research_documents(research_id: str, skip: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
+    """
+    Get all documents for a research from MongoDB.
+    
+    Args:
+        research_id: The research ID
+        skip: Number of documents to skip
+        limit: Maximum number of documents to return
+        
+    Returns:
+        List[Dict[str, Any]]: List of documents
+    """
+    
+    try:
+        documents = await find_many(
+            "documents",
+            {"research_id": research_id},
+            skip=skip,
+            limit=limit,
+            sort=[("created_at", -1)]
+        )
+        return documents
+    except Exception as e:
+        logger.error(f"Error getting research documents: {str(e)}")
+        return []
+
+async def delete_document(document_id: str) -> bool:
+    """
+    Delete a document from MongoDB and the vector store.
+    
+    Args:
+        document_id: The document ID
+        
+    Returns:
+        bool: True if the document was deleted, False otherwise
+    """
+    from ..db.mongodb import delete_one, find_one
+    from ..db.vector_store import delete_documents
+    
+    try:
+        # First get the document to retrieve research_id
+        document = await find_one("documents", {"id": document_id})
+        if not document:
+            return False
+            
+        # Delete from MongoDB
+        mongo_result = await delete_one("documents", {"id": document_id})
+        
+        # Delete from vector store
+        vector_result = await delete_documents(ids=[document_id])
+        
+        return mongo_result and vector_result
+    except Exception as e:
+        logger.error(f"Error deleting document: {str(e)}")
+        return False
 
 # API Key CRUD operations
 async def create_api_key(user_id: str, name: str) -> Optional[str]:
@@ -636,3 +702,47 @@ async def delete_api_key(api_key: str) -> bool:
             await db.rollback()
             logger.error(f"Error deleting API key: {str(e)}")
             return False
+
+# Search operations using vector store
+async def search_documents(query: str, research_id: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
+    """
+    Search for documents using the vector store.
+    
+    Args:
+        query: The search query
+        research_id: Optional research ID to limit the search
+        limit: Maximum number of results to return
+        
+    Returns:
+        List[Dict[str, Any]]: List of search results
+    """
+    from ..db.vector_store import similarity_search
+    from ..db.mongodb import find_one
+    
+    try:
+        # Define namespace if research_id is provided
+        namespace = f"research_{research_id}" if research_id else None
+        
+        # Perform similarity search
+        similar_docs = await similarity_search(
+            query=query,
+            k=limit,
+            namespace=namespace
+        )
+        
+        # Get full documents from MongoDB for each result
+        results = []
+        for doc in similar_docs:
+            doc_id = doc.metadata.get("id")
+            if doc_id:
+                full_doc = await find_one("documents", {"id": doc_id})
+                if full_doc:
+                    # Add similarity information
+                    full_doc["excerpt"] = doc.page_content
+                    full_doc["similarity_score"] = doc.metadata.get("score", 0)
+                    results.append(full_doc)
+        
+        return results
+    except Exception as e:
+        logger.error(f"Error searching documents: {str(e)}")
+        return []
