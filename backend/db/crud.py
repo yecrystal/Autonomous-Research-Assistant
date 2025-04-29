@@ -7,7 +7,7 @@ from sqlalchemy import select, update, delete, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from .postgresql import get_db, Base
+from .postgres import get_db, Base
 from .mongodb import insert_one, find_one, find_many, update_one, delete_one
 from ..models.pydantic_models import (
     User, 
