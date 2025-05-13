@@ -1,17 +1,23 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, status
 from pydantic import BaseModel
+import asyncio
+import uuid
 
 from ..models.pydantic_models import ResearchRequest, ResearchResponse, ResearchStatus, ResearchResult, User
-from ..core.workflow import start_research_workflow, get_research_status
+from ..core.workflow import start_research_workflow, get_research_status, run_research_workflow
 from ..db.crud import save_research_request, get_research_by_id, get_user_researches
 from .auth import get_current_active_user
+from backend.models.research_state import ResearchState
 
 router = APIRouter(
     prefix="/research",
     tags=["Research"],
     responses={404: {"description": "Not found"}},
 )
+
+# In-memory storage for research tasks
+research_tasks: Dict[str, Dict[str, Any]] = {}
 
 @router.post("/", response_model=ResearchResponse)
 async def create_research(
@@ -165,3 +171,85 @@ async def stop_research(
         status=ResearchStatus.STOPPED,
         message="Research task has been stopped."
     )
+
+@router.post("/start", response_model=ResearchResponse)
+async def start_research(request: ResearchRequest, background_tasks: BackgroundTasks):
+    """
+    Start a new research task.
+    """
+    task_id = str(uuid.uuid4())
+    
+    # Initialize task status
+    research_tasks[task_id] = {
+        "status": "running",
+        "query": request.query,
+        "result": None,
+        "error": None
+    }
+    
+    # Run the research workflow in the background
+    background_tasks.add_task(
+        run_research_task,
+        task_id,
+        request.query,
+        request.max_iterations,
+        request.callback_url
+    )
+    
+    return ResearchResponse(
+        task_id=task_id,
+        status="running",
+        message="Research task started successfully"
+    )
+
+@router.get("/status/{task_id}", response_model=Dict[str, Any])
+async def get_research_status(task_id: str):
+    """
+    Get the status of a research task.
+    """
+    if task_id not in research_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    return research_tasks[task_id]
+
+@router.get("/result/{task_id}", response_model=Dict[str, Any])
+async def get_research_result(task_id: str):
+    """
+    Get the result of a completed research task.
+    """
+    if task_id not in research_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    task = research_tasks[task_id]
+    if task["status"] != "completed":
+        raise HTTPException(status_code=400, detail="Research task is not completed yet")
+    
+    return {
+        "status": task["status"],
+        "result": task["result"]
+    }
+
+async def run_research_task(task_id: str, query: str, max_iterations: int, callback_url: Optional[str] = None):
+    """
+    Run the research workflow and update the task status.
+    """
+    try:
+        # Run the research workflow
+        result = await run_research_workflow(query, max_iterations)
+        
+        # Update task status
+        research_tasks[task_id].update({
+            "status": "completed",
+            "result": result.dict()
+        })
+        
+        # Send callback if provided
+        if callback_url:
+            # TODO: Implement callback notification
+            pass
+            
+    except Exception as e:
+        research_tasks[task_id].update({
+            "status": "failed",
+            "error": str(e)
+        })
